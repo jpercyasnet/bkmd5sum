@@ -29,7 +29,7 @@ pub fn execpress (bkdir: String, targetdir: String, refname: String, targetname:
                                  errstring = "the target output files already exists".to_string();
                                  errcode = 5;
                              } else {
-                                 println!("csvfile: {}", csvfullname);
+//                                 println!("csvfile: {}", csvfullname);
                                  if Path::new(&csvfullname).exists() {
                                      errstring = "the target output files already exists".to_string();
                                      errcode = 6;

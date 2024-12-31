@@ -1,9 +1,10 @@
 use iced::widget::{button, column, row, text_input, text, Space, checkbox, progress_bar};
-use iced::{Alignment, Element, Command, Application, Settings, Color, Size};
+use iced::{Alignment, Element, Task, Color, Size};
 use iced::theme::{Theme};
-use iced::executor;
+use iced::Subscription;
 use iced::window;
-use iced_futures::futures;
+use iced::futures;
+use iced::event::{self, Event};
 use futures::channel::mpsc;
 extern crate chrono;
 // use std::path::Path;
@@ -52,8 +53,8 @@ struct Bkup {
 
 pub fn main() -> iced::Result {
 
-     let mut widthxx: f32 = 1350.0;
-     let mut heightxx: f32 = 750.0;
+     let mut widthxx: f32 = 500.0;
+     let mut heightxx: f32 = 300.0;
      let (errcode, errstring, widtho, heighto) = get_winsize();
      if errcode == 0 {
          widthxx = widtho as f32 - 20.0;
@@ -62,14 +63,17 @@ pub fn main() -> iced::Result {
      } else {
          println!("**ERROR {} get_winsize: {}", errcode, errstring);
      }
-
-     Bkmd5sum::run(Settings {
-        window: window::Settings {
-            size: Size::new(widthxx, heightxx),
-            ..window::Settings::default()
-        },
-        ..Settings::default()
-     })
+     println!("widthxx: -{}-  heightxx: -{}- ", widthxx, heightxx);
+     iced::application(Bkmd5sum::title, Bkmd5sum::update, Bkmd5sum::view)
+        .window(window::Settings {
+            max_size: Some(Size::new(widthxx, heightxx)),
+            decorations: true,
+            ..Default::default()
+        })
+        .window_size((widthxx, heightxx))
+        .theme(Bkmd5sum::theme)
+        .subscription(Bkmd5sum::subscription)
+        .run_with(Bkmd5sum::new)
 }
 
 struct Bkmd5sum {
@@ -85,6 +89,8 @@ struct Bkmd5sum {
     targetname: String,
     do_progress: bool,
     progval: f64,
+    screenwidth: f32,
+    screenheight: f32,
     dbconn: Connection,
     tx_send: mpsc::UnboundedSender<String>,
     rx_receive: mpsc::UnboundedReceiver<String>,
@@ -104,21 +110,20 @@ enum Message {
     ExecxFound(Result<Execx, Error>),
     ProgressPressed,
     ProgRtn(Result<Progstart, Error>),
+    Size(Size),
+
 }
 
-impl Application for Bkmd5sum {
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = ();
-    type Executor = executor::Default;
-    fn new(_flags: Self::Flags) -> (Bkmd5sum, iced::Command<Message>) {
+impl Bkmd5sum {
+     fn new() -> (Self, Task<Message>) {
         let (tx_send, rx_receive) = mpsc::unbounded();
         ( Self { offline_bool: false,dbname: "--".to_string(),bklabel: "--".to_string(), bkpath: "--".to_string(), msg_value: "no message".to_string(),
-               targetdir: "--".to_string(), mess_color: Color::from([0.0, 0.0, 0.0]), alt_bool: false, altname: "--".to_string(), 
+               targetdir: "--".to_string(), mess_color: Color::from([0.0, 0.0, 1.0]), alt_bool: false, altname: "--".to_string(), 
                targetname: "--".to_string(), do_progress: false, progval: 0.0, tx_send, rx_receive,
+               screenwidth: 999.0, screenheight: 999.0,
                dbconn: Connection::open_in_memory().unwrap(),
           },
-          Command::none()
+          Task::none()
         )
     }
 
@@ -126,7 +131,7 @@ impl Application for Bkmd5sum {
         String::from("Backup file list with md5sum -- iced")
     }
 
-    fn update(&mut self, message: Message) -> Command<Message>  {
+    fn update(&mut self, message: Message) -> Task<Message>  {
         match message {
             Message::DBPressed => {
                self.mess_color = Color::from([1.0, 0.0, 0.0]);
@@ -151,7 +156,7 @@ impl Application for Bkmd5sum {
                        } 
                    }
                }
-               Command::none()
+               Task::none()
             }
             Message::BkPressed => {
                let mut n = 0;   
@@ -281,7 +286,7 @@ impl Application for Bkmd5sum {
                        }
                    }
                }
-               Command::none()
+               Task::none()
            }
            Message::CheckDBPressed => {
                self.mess_color = Color::from([1.0, 0.0, 0.0]);
@@ -345,12 +350,12 @@ impl Application for Bkmd5sum {
                                }
                            }
                        }
-               Command::none()
+               Task::none()
             }
-            Message::AltnameChanged(value) => { self.altname = value; Command::none() }
-            Message::Alt(picked) => {self.alt_bool = picked; Command::none()}
-            Message::Offline(picked) => {self.offline_bool = picked; Command::none()}
-            Message::TargetnameChanged(value) => { self.targetname = value; Command::none() }
+            Message::AltnameChanged(value) => { self.altname = value; Task::none() }
+            Message::Alt(picked) => {self.alt_bool = picked; Task::none()}
+            Message::Offline(picked) => {self.offline_bool = picked; Task::none()}
+            Message::TargetnameChanged(value) => { self.targetname = value; Task::none() }
             Message::TargetdirPressed => {
 //               let mut inputstr: String = self.targetdir.clone();
                let (errcode, errstr, newinput) = inputpress(self.targetdir.clone());
@@ -361,7 +366,7 @@ impl Application for Bkmd5sum {
                } else {
                    self.mess_color = Color::from([1.0, 0.0, 0.0]);
                }
-               Command::none()
+               Task::none()
             }
             Message::ExecPressed => {
                let labelval: String;
@@ -374,11 +379,11 @@ impl Application for Bkmd5sum {
                self.msg_value = errstr.to_string();
                if errcode == 0 {
                    self.mess_color = Color::from([0.0, 1.0, 0.0]);
-                   Command::perform(Execx::execit(self.bkpath.clone(),self.targetdir.clone(), labelval, self.targetname.clone(), self.tx_send.clone()), Message::ExecxFound)
+                   Task::perform(Execx::execit(self.bkpath.clone(),self.targetdir.clone(), labelval, self.targetname.clone(), self.tx_send.clone()), Message::ExecxFound)
 
                } else {
                    self.mess_color = Color::from([1.0, 0.0, 0.0]);
-                   Command::none()
+                   Task::none()
                }
             }
             Message::ExecxFound(Ok(exx)) => {
@@ -408,16 +413,16 @@ impl Application for Bkmd5sum {
                        self.msg_value = "no dvd drives found".to_string();
                    }
                }
-               Command::none()
+               Task::none()
             }
             Message::ExecxFound(Err(_error)) => {
                self.msg_value = "error in copyx copyit routine".to_string();
                self.mess_color = Color::from([1.0, 0.0, 0.0]);
-               Command::none()
+               Task::none()
             }
             Message::ProgressPressed => {
                    self.do_progress = true;
-                   Command::perform(Progstart::pstart(), Message::ProgRtn)
+                   Task::perform(Progstart::pstart(), Message::ProgRtn)
             }
             Message::ProgRtn(Ok(_prx)) => {
               if self.do_progress {
@@ -459,18 +464,24 @@ impl Application for Bkmd5sum {
                     }
                 } 
                 if b100 {
-                    Command::none()   
+                    Task::none()   
                 } else {         
-                    Command::perform(Progstart::pstart(), Message::ProgRtn)
+                    Task::perform(Progstart::pstart(), Message::ProgRtn)
                 }
               } else {
-                Command::none()
+                Task::none()
               }
             }
             Message::ProgRtn(Err(_error)) => {
                 self.msg_value = "error in Progstart::pstart routine".to_string();
                 self.mess_color = Color::from([1.0, 0.0, 0.0]);
-               Command::none()
+               Task::none()
+            }
+
+            Message::Size(size) => {
+                self.screenwidth = size.width;
+                self.screenheight = size.height;
+                Task::none()
             }
 
         }
@@ -479,62 +490,65 @@ impl Application for Bkmd5sum {
     fn view(&self) -> Element<Message> {
         column![
             row![text("Message:").size(20),
-                 text(&self.msg_value).size(20).style(*&self.mess_color),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+                 text(&self.msg_value).size(20).color(*&self.mess_color),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![checkbox("Offline (no database)", self.offline_bool).on_toggle(Message::Offline).size(20),
                  button("get database").on_press(Message::DBPressed),
                  text("   database:").size(20),text(&self.dbname).size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![button("Search for bluray disc").on_press(Message::BkPressed),
                  text("   bluray label:").size(20),
                  text(&self.bklabel).size(20), text("       bluray mount:").size(20), text(&self.bkpath).size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![checkbox("Alternative label", self.alt_bool).on_toggle(Message::Alt).size(20),
                  button("check if in db").on_press(Message::CheckDBPressed),
                  text("        Alternative label name: ").size(20),
                  text_input("No input....", &self.altname)
                             .on_input(Message::AltnameChanged).padding(10).size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![button("Target directory Button").on_press(Message::TargetdirPressed),
                  text(&self.targetdir).size(20).width(1000)
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![text("Target file name: ").size(20),
                  text_input(".hdlist", &self.targetname)
                             .on_input(Message::TargetnameChanged).padding(10).size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![Space::with_width(200),
                  button("Exec Button").on_press(Message::ExecPressed),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![button("Start Progress Button").on_press(Message::ProgressPressed).height(50),
                  progress_bar(0.0..=100.0,self.progval as f32),
                  text(format!("{:.2}%", &self.progval)).size(30),
-            ].align_items(Alignment::Center).spacing(5).padding(10),
+            ].align_y(Alignment::Center).spacing(5).padding(10),
             row![text("need to input database").size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![text("get blu ray disk and get path and label and see if label exists in database").size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
             row![text("execute will validate label with database, then get md5sum for each file and update").size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
-            row![text("create output listing in target directory").size(20),
-            ].align_items(Alignment::Center).spacing(10).padding(10),
+            ].align_y(Alignment::Center).spacing(10).padding(10),
+            row![text(format!("create output listing in target directory  width: {:.1}   height: {:.1}", &self.screenwidth, &self.screenheight)).size(20), 
+            ].align_y(Alignment::Center).spacing(10).padding(10),
 
         ]
         .padding(5)
-        .align_items(Alignment::Start)
+        .align_x(Alignment::Start)
         .into()
     }
 
     fn theme(&self) -> Theme {
        Theme::Dracula
-/*          Theme::custom(theme::Palette {
-                        background: Color::from_rgb8(240, 240, 240),
-                        text: Color::BLACK,
-                        primary: Color::from_rgb8(230, 230, 230),
-                        success: Color::from_rgb(0.0, 1.0, 0.0),
-                        danger: Color::from_rgb(1.0, 0.0, 0.0),
-                    })
-*/               
     }
+    
+    fn subscription(&self) -> Subscription<Message> {
+        event::listen_with(|event, _status, _window| match event {
+            Event::Window(window::Event::Resized(size)) => {
+                Some(Message::Size(size))
+            }
+            _ => None,
+        })
+    }
+            
+
 }
 
 #[derive(Debug, Clone)]
@@ -561,7 +575,7 @@ impl Execx {
      let csvfullname: String = format!("{}/{}.csvlist", targetdir, &targetname[0..lrperpos]);
      let mut targetfile = File::create(targetfullname).unwrap();
      let mut csvtargetfile = File::create(csvfullname).unwrap();
-     println!("bkpath: {}", bkpath);
+//     println!("bkpath: {}", bkpath);
      for entryx in WalkDir::new(&bkpath).into_iter().filter_map(|e| e.ok()) {
           if let Ok(metadata) = entryx.metadata() {
               if metadata.is_file() {

@@ -1,4 +1,4 @@
-use native_dialog::FileDialog;
+use rfd::FileDialog;
 use std::path::{Path, PathBuf};
 pub fn dbfile (inputval: String) -> (u32, String, String) {
      let errcode: u32;
@@ -12,10 +12,12 @@ pub fn dbfile (inputval: String) -> (u32, String, String) {
          new_input = "/".to_string();
      }
      let newfile = FileDialog::new()
-        .set_location(&new_input)
-        .show_open_single_file()
-        .unwrap();
-     if newfile == None {
+ //        .set_location(&new_dir)
+//        .show_open_single_file()
+//        .unwrap();
+         .set_directory(&new_input)
+         .pick_file();
+    if newfile == None {
          errstring = "error getting file -- possible cancel key hit".to_string();
          errcode = 1;
      } else {
